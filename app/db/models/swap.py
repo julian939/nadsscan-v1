@@ -57,9 +57,9 @@ class Swap(Base):
                  token_out: str,
                  amount_in_raw: str,
                  amount_out_raw: str,
-                 amount_in: float,
-                 amount_out: float,
-                 mon_amount: float,
+                 amount_in: str,
+                 amount_out: str,
+                 mon_amount: str,
                  is_sell: bool,
                  wallet: str):
         try:
