@@ -26,10 +26,10 @@ class NFTTrade(Base):
 
     contract = Column(String, nullable=False, index=True)
     token_id = Column(String, nullable=False)
+    #amount = Column(Numeric, nullable=False) - add?
     value_mon = Column(Numeric, nullable=False)
 
     is_sell = Column(Boolean, nullable=False, default=False)
-    is_buy = Column(Boolean, nullable=False, default=False)
 
     wallet = Column(String, index=True, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)

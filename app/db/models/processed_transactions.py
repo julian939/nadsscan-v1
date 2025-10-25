@@ -8,7 +8,7 @@ from sqlalchemy import (
 )
 from app.db.database import Base
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Any
 
 
 class ProcessedTransaction(Base):
@@ -93,9 +93,9 @@ class ProcessedTransaction(Base):
             raise
 
     @classmethod
-    def get_by_block(cls, db: Session, block_number: int) -> Optional['ProcessedTransaction']:
+    def get_from_block(cls, db: Session, block_number: int) -> Optional[list]:
         """Get any processed transaction from a specific block"""
         try:
-            return db.query(cls).filter(cls.block_number == block_number).first()
+            return db.query(cls).filter(cls.block_number == block_number).all()
         except Exception:
-            return None
+            return []

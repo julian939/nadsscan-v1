@@ -27,7 +27,6 @@ class Position(Base):
 
     # PnL tracking
     realized_pnl_mon = Column(Numeric(precision=36, scale=18), nullable=False, default=0)
-    unrealized_pnl_mon = Column(Numeric(precision=36, scale=18), nullable=True, default=0)
 
     # Trade statistics
     total_bought = Column(Numeric(precision=36, scale=18), nullable=False, default=0)
