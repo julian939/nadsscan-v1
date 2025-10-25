@@ -1,86 +1,107 @@
+from sqlalchemy.orm import Session
 from typing import Optional
 
-from fastapi import Depends
-from sqlalchemy.orm import Session
-
-from app.db.database import get_db
-from app.db.models.nft import NFTTrade
+from app.db.models.processed_transactions import ProcessedTransaction
 from app.db.models.swap import Swap
+from app.db.models.nft import NFTTrade
 from app.utils.logger import logger
 
-from app.db.models.processed_transactions import ProcessedTransaction
 
-
-async def detect_reorg(current_block_number: int,
-                       current_block_hash: str,
-                       db: Session = Depends(get_db())) -> Optional[int]:
+def detect_reorg(
+        current_block_number: int,
+        current_block_hash: str,
+        db: Session
+) -> Optional[int]:
     """
-    Detects if a reorg has occurred by comparing the current block number and hash
-    returning the block number if a reorg has occurred.
-    Otherwise, returns None.
+    Detects if a blockchain reorganization has occurred
+
+    Args:
+        current_block_number: Block number from incoming event
+        current_block_hash: Block hash from incoming event
+        db: Database session
+
+    Returns:
+        Block number where reorg occurred, or None if no reorg detected
     """
     try:
-        existing_block = (
-            db.query(ProcessedTransaction)
-            .filter(ProcessedTransaction.block_number == current_block_number)
-            .first()
-        )
+        # Check if we have processed transactions for this block
+        existing_tx = ProcessedTransaction.get_by_block(db, current_block_number)
 
-        # Noch kein Eintrag zu diesem Block → kein Reorg
-        if not existing_block:
+        # No existing entry for this block → no reorg
+        if not existing_tx:
             return None
 
-        # Wenn der BlockHash abweicht → Reorg!
-        if existing_block.block_hash != current_block_hash:
-            logger.warn(
-                "reorg",
-                f"Detected reorg at block {current_block_number}",
-                {"old_hash": existing_block.block_hash, "new_hash": current_block_hash},
-            )
+        # Block hash mismatch → reorg detected!
+        if existing_tx.block_hash != current_block_hash:
+            logger.warn("reorg", f"Blockchain reorg detected at block {current_block_number}", {
+                "old_hash": existing_tx.block_hash,
+                "new_hash": current_block_hash
+            })
             return current_block_number
 
         return None
 
     except Exception as e:
-        logger.error("reorg", "Error while checking for reorg", error=e)
+        logger.error("reorg", "Error while checking for reorg", error=e, context={
+            "block_number": current_block_number,
+            "block_hash": current_block_hash
+        })
+        # Return None instead of raising - don't stop processing on reorg check failure
         return None
-    finally:
-        db.close()
 
 
-async def handle_reorg(from_block: int, db: Session = Depends(get_db())):
+def handle_reorg(from_block: int, db: Session) -> dict:
     """
-    Handles the reorganization (reorg) of the blockchain data by removing entries
-    from the database that are associated with blocks greater than or equal
-    to the given starting block number. It performs cleanup on swaps, NFT trades,
-    and processed transactions to maintain consistency after a reorg event.
+    Handle blockchain reorganization by removing affected data
+
+    Args:
+        from_block: Block number to start cleanup from (inclusive)
+        db: Database session
+
+    Returns:
+        Dictionary with cleanup statistics
     """
     try:
-        logger.warn("reorg", f"Starting cleanup from block {from_block}")
+        logger.warn("reorg", f"Starting reorg cleanup from block {from_block}")
 
-        deleted_swaps = db.query(Swap).filter(Swap.block_number >= from_block).delete()
-        deleted_nfts = db.query(NFTTrade).filter(NFTTrade.block_number >= from_block).delete()
+        # Delete all swaps from affected blocks
+        deleted_swaps = (
+            db.query(Swap)
+            .filter(Swap.block_number >= from_block)
+            .delete(synchronize_session=False)
+        )
+
+        # Delete all NFT trades from affected blocks
+        deleted_nfts = (
+            db.query(NFTTrade)
+            .filter(NFTTrade.block_number >= from_block)
+            .delete(synchronize_session=False)
+        )
+
+        # Delete processed transaction markers
         deleted_processed = (
             db.query(ProcessedTransaction)
             .filter(ProcessedTransaction.block_number >= from_block)
-            .delete()
+            .delete(synchronize_session=False)
         )
 
+        # Commit all deletions
         db.commit()
 
-        logger.info(
-            "reorg",
-            "Cleanup completed",
-            {
-                "from_block": from_block,
-                "deleted_swaps": deleted_swaps,
-                "deleted_nfts": deleted_nfts,
-                "deleted_processed": deleted_processed,
-            },
-        )
+        result = {
+            "from_block": from_block,
+            "deleted_swaps": deleted_swaps,
+            "deleted_nfts": deleted_nfts,
+            "deleted_processed": deleted_processed
+        }
+
+        logger.info("reorg", "Reorg cleanup completed successfully", result)
+
+        return result
 
     except Exception as e:
         db.rollback()
-        logger.error("reorg", "Error during cleanup", error=e)
-    finally:
-        db.close()
+        logger.error("reorg", "Error during reorg cleanup", error=e, context={
+            "from_block": from_block
+        })
+        raise

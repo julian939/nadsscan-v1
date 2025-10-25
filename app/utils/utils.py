@@ -1,40 +1,82 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
-from app.config.config import config
-from app.services.pools import get_or_create_pool_info
-
-MON_ADDRESS: str = config.MON_ADDRESS
-
-def calculate_mon_amount(event: dict, db) -> Decimal:
-    pool_address = event.get("pool", "").lower()
-    if not pool_address:
-        return Decimal(0)
-
-    token0, token1 = get_or_create_pool_info(pool_address, db)
-    amount0 = Decimal(event.get("amount0", "0"))
-    amount1 = Decimal(event.get("amount1", "0"))
-
-    if token0 == MON_ADDRESS:
-        return amount0 / Decimal(1e18)
-    elif token1 == MON_ADDRESS:
-        return amount1 / Decimal(1e18)
-    return Decimal(0)
+from typing import Optional
 
 
-def normalize_amount(raw: str) -> Decimal:
-    """ Convert raw string to decimal number """
+def normalize_address(address: Optional[str]) -> str:
+    """Normalize ethereum address to lowercase and strip whitespace"""
+    if not address:
+        return ""
+    return address.lower().strip()
+
+
+def normalize_amount(raw: str, decimals: int = 18) -> Decimal:
+    """
+    Convert raw token amount string to decimal number
+
+    Args:
+        raw: Raw amount as string
+        decimals: Token decimals (default 18)
+
+    Returns:
+        Decimal representation of the amount
+    """
     try:
-        return Decimal(raw) / Decimal(10 ** 18)
+        divisor = Decimal(10) ** decimals
+        return Decimal(raw) / divisor
     except Exception:
         return Decimal(0)
 
 
-def get_time_window(period: str):
+def calculate_mon_amount_from_pool_data(
+        token0: str,
+        token1: str,
+        amount0: Decimal,
+        amount1: Decimal,
+        mon_address: str
+) -> Decimal:
+    """
+    Calculate MON amount from pool token data
+
+    Args:
+        token0: First token address
+        token1: Second token address
+        amount0: Amount of token0
+        amount1: Amount of token1
+        mon_address: MON token address
+
+    Returns:
+        Amount of MON in the transaction
+    """
+    if token0.lower() == mon_address.lower():
+        return abs(amount0)
+    elif token1.lower() == mon_address.lower():
+        return abs(amount1)
+    return Decimal(0)
+
+
+def get_time_window(period: str) -> datetime:
+    """
+    Get datetime for start of time period
+
+    Args:
+        period: One of "1d", "7d", "30d"
+
+    Returns:
+        Datetime object representing start of period
+
+    Raises:
+        ValueError: If period is invalid
+    """
     now = datetime.utcnow()
-    if period == "1d":
-        return now - timedelta(days=1)
-    elif period == "7d":
-        return now - timedelta(days=7)
-    elif period == "30d":
-        return now - timedelta(days=30)
-    raise ValueError("Invalid period")
+
+    period_map = {
+        "1d": timedelta(days=1),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+    }
+
+    if period not in period_map:
+        raise ValueError(f"Invalid period: {period}. Must be one of {list(period_map.keys())}")
+
+    return now - period_map[period]
